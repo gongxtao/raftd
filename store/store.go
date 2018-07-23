@@ -62,6 +62,8 @@ func NewStore(path, localId string, localAddr string) (*Store, error) {
 	raftC := raft.DefaultConfig()
 	raftC.LocalID = raft.ServerID(s.localId)
 	raftC.LogOutput = &Logger{}
+	//raftC.SnapshotInterval = 10 * time.Second
+	raftC.SnapshotThreshold = 1
 
 	// transport
 	//addr, err := net.ResolveIPAddr("tcp", s.localAddr)

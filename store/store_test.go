@@ -18,7 +18,7 @@ func TestNewStore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	time.Sleep(10 * time.Second)
+	time.Sleep(2*time.Second)
 
 	if err := store.Set("name", "gongxt"); err != nil {
 		t.Errorf("failed to set: %v", err)
@@ -40,5 +40,5 @@ func TestNewStore(t *testing.T) {
 		t.Errorf("expect: %s, got: %s", "gongxt", v)
 	}
 
-	time.Sleep(10 * time.Second)
+	time.Sleep(30 * time.Second)
 }

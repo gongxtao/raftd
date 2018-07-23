@@ -17,6 +17,8 @@ var (
 	dbConf = []byte("conf")
 	dbData = []byte("data")
 
+	keyLastAppliedIndex = []byte("LastAppliedIndex")
+
 	// An error indicating a given key does not exist
 	ErrKeyNotFound = errors.New("not found")
 	ErrBucketNotFound = errors.New("bucket is not exist")
@@ -28,13 +30,25 @@ type FSM struct {
 	sync.RWMutex
 	// apply logs
 	rb 	*BoltDB
+
+	lastAppliedIndex uint64
 }
 
 func NewFSM(rb *BoltDB) (*FSM, error) {
-
-	return &FSM{
+	f := &FSM{
 		rb: rb,
-	}, nil
+	}
+
+	index, err := f.rb.GetUint64(keyLastAppliedIndex)
+	if err != nil && err != ErrKeyNotFound {
+		logrus.WithField("key", string(keyLastAppliedIndex)).Errorf("failed to get last applied index: %v", err)
+		return nil, err
+	}
+
+	f.lastAppliedIndex = index
+	logrus.Println("last applied index:", f.lastAppliedIndex)
+
+	return f, nil
 }
 
 // Apply log is invoked once a log entry is committed.
@@ -42,22 +56,37 @@ func NewFSM(rb *BoltDB) (*FSM, error) {
 // ApplyFuture returned by Raft.Apply method if that
 // method was called on the same Raft node as the FSM.
 func (f *FSM) Apply(log *raft.Log) interface{} {
+	if f.lastAppliedIndex >= log.Index {
+		return nil
+	}
+
 	logrus.Infof("apply log, index:%d,term:%d,type:%v,data:%s", log.Index, log.Term, log.Type, string(log.Data))
 
+	var err error
 	var cmd Command
-	if err := json.Unmarshal(log.Data, &cmd); err != nil {
+	if err = json.Unmarshal(log.Data, &cmd); err != nil {
 		logrus.Errorf("failed to unmarshal log: %v", err)
 		return err
 	}
 
 	switch cmd.OP {
 	case SET:
-		return f.set(cmd.Key, cmd.Value)
+		err = f.set(cmd.Key, cmd.Value)
 	case DEL:
-		return f.del(cmd.Key)
+		err = f.del(cmd.Key)
 	default:
 		logrus.Errorf("unknown operator command: %s", cmd.OP)
-		return ErrUnknownCommand
+		err = ErrUnknownCommand
+	}
+
+	if err != nil {
+		return err
+	}
+
+	f.lastAppliedIndex = log.Index
+	if err := f.rb.SetUint64(keyLastAppliedIndex, log.Index); err != nil {
+		logrus.WithField("log", log).Errorf("failed to set last applied index: %v", err)
+		return nil
 	}
 
 	return nil
